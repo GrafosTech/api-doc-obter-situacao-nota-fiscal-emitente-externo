@@ -1,0 +1,924 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "Grafos Tech - API para Emitentes",
+    "version": "v1",
+    "description": "Documentação da API pública destinada a emitentes para consulta da situação de entregas e obtenção de evidências.<br/><br/><strong>Pré-requisitos de acesso:</strong><br/>• possuir um usuário ativo do tipo <strong>Sistema externo do emitente - API</strong> (<code>SistemaExternoEmitente</code>);<br/>• autenticar esse usuário no endpoint de login;<br/>• o usuário deve possuir vínculos ativos com os emitentes que poderá consultar. Documentos e evidências de emitentes não vinculados não serão disponibilizados.<br/><br/><strong>Fluxo de utilização:</strong><br/>1. No servidor <strong>URL Microservices</strong>, consulte <code>GET /api/Backend</code> e armazene a URL atual do backend. Recomendamos atualizar essa URL uma vez ao dia.<br/>2. Na URL retornada, faça login em <code>POST /api/Users/login</code> e armazene o token retornado. O token expira após a meia-noite.<br/>3. Envie o token nas demais requisições no header <code>Authorization: Bearer &lt;token&gt;</code>.<br/><br/>Não envie EmpresaId, UsuarioId ou EmitenteId nas consultas: esses dados são identificados e validados pelo servidor.<br/><br/>Suporte: contato@grafostech.com.br | WhatsApp: (47) 98920-0000."
+  },
+  "tags": [
+    {
+      "name": "Microservices",
+      "description": "Descoberta da URL atual do backend."
+    },
+    {
+      "name": "Autenticação",
+      "description": "Autenticação do usuário externo do emitente."
+    },
+    {
+      "name": "Entregas do emitente",
+      "description": "Consulta de situação limitada aos emitentes vinculados ao usuário autenticado."
+    },
+    {
+      "name": "Evidências do emitente",
+      "description": "Obtenção de evidências autorizadas das entregas consultadas."
+    }
+  ],
+  "servers": [
+    {
+      "url": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io",
+      "description": "Backend de produção (consulte a URL atual em /api/Backend)"
+    },
+    {
+      "url": "https://api.grafostech.com.br",
+      "description": "URL Microservices (utilize este servidor para /api/Backend)"
+    }
+  ],
+  "paths": {
+    "/api/Backend": {
+      "get": {
+        "tags": [
+          "Microservices"
+        ],
+        "summary": "Obtém a URL atual do backend",
+        "description": "Chame este endpoint usando o servidor URL Microservices (https://api.grafostech.com.br). Recomendamos atualizar a URL uma vez ao dia e usar o valor de `backend` nas demais operações.",
+        "servers": [
+          {
+            "url": "https://api.grafostech.com.br",
+            "description": "URL Microservices"
+          }
+        ],
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "URL atual do backend obtida com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UrlBackend"
+                },
+                "example": {
+                  "backend": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/Users/login": {
+      "post": {
+        "tags": [
+          "Autenticação"
+        ],
+        "summary": "Autentica o usuário externo do emitente",
+        "description": "Use as credenciais de um usuário ativo do tipo `Sistema externo do emitente - API`. O usuário deve possuir emitentes configurados e com vínculo ativo. Armazene o campo `token` da resposta e envie-o como Bearer nas chamadas protegidas. O token expira após a meia-noite.",
+        "servers": [
+          {
+            "url": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io",
+            "description": "URL do backend obtida em /api/Backend"
+          }
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              },
+              "example": {
+                "userName": "integracao.emitente",
+                "password": "sua-senha"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Autenticação realizada com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                },
+                "example": {
+                  "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+                  "empresa": {
+                    "id": 123,
+                    "nome": "Empresa de exemplo"
+                  },
+                  "user": {
+                    "id": 456,
+                    "userName": "integracao.emitente",
+                    "empresaId": 123,
+                    "role": "SistemaExternoEmitente"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empresa não encontrada, inativa ou com pendência cadastral.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginError"
+                },
+                "example": {
+                  "message": "Cadastro não encontrado"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Usuário/senha inválidos ou usuário inativo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginError"
+                },
+                "example": {
+                  "message": "Usuário ou senha inválidos"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/emitentesExternos/entregas/situacao": {
+      "post": {
+        "tags": [
+          "Entregas do emitente"
+        ],
+        "summary": "Consulta a situação de uma entrega do emitente",
+        "description": "Retorna a situação da entrega somente quando o documento pertence a um emitente vinculado ativamente ao usuário autenticado.<br/><br/><strong>Prioridade dos filtros:</strong> `chave`, depois `numeroNf`, depois `idExterno`. Quando mais de um campo for enviado, apenas o primeiro preenchido nessa ordem será usado. Ao menos um filtro é obrigatório. Se o filtro localizar mais de um documento autorizado, a API solicitará um filtro mais específico.<br/><br/>O endpoint aceita até 60 requisições por minuto, por usuário e por instância.",
+        "servers": [
+          {
+            "url": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io",
+            "description": "URL do backend obtida em /api/Backend"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConsultaSituacaoRequest"
+              },
+              "examples": {
+                "Consulta por chave": {
+                  "summary": "Consulta prioritária pela chave do documento",
+                  "value": {
+                    "chave": "12345678901234567890123456789012345678901234"
+                  }
+                },
+                "Consulta por número da NF": {
+                  "summary": "Consulta pelo número da nota fiscal",
+                  "value": {
+                    "numeroNf": "158148"
+                  }
+                },
+                "Consulta por ID externo": {
+                  "summary": "Consulta pelo identificador externo",
+                  "value": {
+                    "idExterno": "15.814.8-lote1"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Situação encontrada com sucesso. Consulte os exemplos para todos os valores possíveis de `situacao`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SituacaoBaseResponse"
+                },
+                "examples": {
+                  "Aguardando": {
+                    "summary": "Entrega ainda aguardando realização",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Aguardando",
+                        "dataHoraRealizada": null,
+                        "localRealizado": null,
+                        "motivosDevolucao": [],
+                        "evidencias": []
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Entregue": {
+                    "summary": "Entrega concluída integralmente",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Entregue",
+                        "dataHoraRealizada": "2026-08-31T14:22:00-03:00",
+                        "localRealizado": {
+                          "latitude": -26.3044,
+                          "longitude": -48.8461
+                        },
+                        "motivosDevolucao": [],
+                        "evidencias": [
+                          {
+                            "id": 123,
+                            "dataHora": "2026-08-31T14:23:10-03:00"
+                          }
+                        ]
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Devolvido": {
+                    "summary": "Entrega devolvida",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Devolvido",
+                        "dataHoraRealizada": "2026-08-31T15:10:00-03:00",
+                        "localRealizado": {
+                          "latitude": -26.305,
+                          "longitude": -48.847
+                        },
+                        "motivosDevolucao": [
+                          {
+                            "titulo": "Cliente ausente",
+                            "descricao": "Não havia recebedor no local"
+                          }
+                        ],
+                        "evidencias": [
+                          {
+                            "id": 124,
+                            "dataHora": "2026-08-31T15:11:30-03:00"
+                          }
+                        ]
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Entregue parcialmente": {
+                    "summary": "Entrega realizada parcialmente",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "EntregueParcial",
+                        "dataHoraRealizada": "2026-08-31T16:05:00-03:00",
+                        "localRealizado": {
+                          "latitude": -26.3062,
+                          "longitude": -48.8483
+                        },
+                        "motivosDevolucao": [
+                          {
+                            "titulo": "Mercadoria recusada parcialmente",
+                            "descricao": "O destinatário recebeu somente parte dos volumes"
+                          }
+                        ],
+                        "evidencias": [
+                          {
+                            "id": 125,
+                            "dataHora": "2026-08-31T16:06:15-03:00"
+                          },
+                          {
+                            "id": 126,
+                            "dataHora": "2026-08-31T16:07:02-03:00"
+                          }
+                        ]
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Cancelada": {
+                    "summary": "Entrega cancelada",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Cancelada",
+                        "dataHoraRealizada": null,
+                        "localRealizado": null,
+                        "motivosDevolucao": [],
+                        "evidencias": []
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Reagendada": {
+                    "summary": "Entrega reagendada",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Reagendada",
+                        "dataHoraRealizada": null,
+                        "localRealizado": null,
+                        "motivosDevolucao": [
+                          {
+                            "titulo": "Recebimento reagendado",
+                            "descricao": "Destinatário solicitou nova data para recebimento"
+                          }
+                        ],
+                        "evidencias": []
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Bloqueada": {
+                    "summary": "Entrega bloqueada para realização",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Bloqueada",
+                        "dataHoraRealizada": null,
+                        "localRealizado": null,
+                        "motivosDevolucao": [],
+                        "evidencias": []
+                      },
+                      "metadata": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Nenhum filtro foi informado ou o filtro encontrou mais de um documento autorizado.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                },
+                "examples": {
+                  "Filtro obrigatório": {
+                    "value": {
+                      "success": false,
+                      "message": "Informe ao menos um filtro.",
+                      "data": null,
+                      "metadata": null
+                    }
+                  },
+                  "Filtro ambíguo": {
+                    "value": {
+                      "success": false,
+                      "message": "Informe um filtro mais específico.",
+                      "data": null,
+                      "metadata": null
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado."
+          },
+          "403": {
+            "description": "O usuário não é do tipo Sistema externo do emitente - API, está inativo ou não satisfaz a política exclusiva de acesso."
+          },
+          "404": {
+            "description": "Documento inexistente ou não autorizado para os emitentes vinculados ao usuário. A resposta é uniforme para não revelar recursos de outros emitentes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                },
+                "example": {
+                  "success": false,
+                  "message": "Recurso não encontrado.",
+                  "data": null,
+                  "metadata": null
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 60 requisições por minuto excedido. Respeite o header Retry-After.",
+            "headers": {
+              "Retry-After": {
+                "description": "Quantidade de segundos até uma nova tentativa.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Falha interna ao processar a solicitação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                },
+                "example": {
+                  "success": false,
+                  "message": "Não foi possível processar a solicitação.",
+                  "data": null,
+                  "metadata": null
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/emitentesExternos/evidencias/{id}": {
+      "get": {
+        "tags": [
+          "Evidências do emitente"
+        ],
+        "summary": "Obtém uma evidência autorizada em Base64",
+        "description": "Obtém o conteúdo de uma evidência listada na consulta de situação. Antes de retornar o conteúdo, a API valida a empresa, o usuário, o vínculo ativo com o emitente, a associação segura da evidência e a existência do arquivo.<br/><br/>O endpoint aceita até 20 requisições por minuto, por usuário e por instância. O Base64 deve ser tratado como dado sensível.",
+        "servers": [
+          {
+            "url": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io",
+            "description": "URL do backend obtida em /api/Backend"
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "Identificador positivo retornado no campo `data.evidencias[].id` da consulta de situação.",
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 1
+            },
+            "example": 123
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Evidência obtida com sucesso.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenciaBaseResponse"
+                },
+                "example": {
+                  "success": true,
+                  "message": "Sucesso.",
+                  "data": {
+                    "conteudoBase64": "iVBORw0KGgoAAAANSUhEUgAA..."
+                  },
+                  "metadata": null
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "O identificador da evidência é zero ou negativo.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                },
+                "example": {
+                  "success": false,
+                  "message": "O identificador da evidência é inválido.",
+                  "data": null,
+                  "metadata": null
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Token ausente, inválido ou expirado."
+          },
+          "403": {
+            "description": "O usuário não é do tipo Sistema externo do emitente - API, está inativo ou não satisfaz a política exclusiva de acesso."
+          },
+          "404": {
+            "description": "Evidência inexistente, não autorizada, sem associação segura ou sem arquivo disponível. A resposta é uniforme para não revelar recursos de outros emitentes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                },
+                "example": {
+                  "success": false,
+                  "message": "Recurso não encontrado.",
+                  "data": null,
+                  "metadata": null
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 20 requisições por minuto excedido. Respeite o header Retry-After.",
+            "headers": {
+              "Retry-After": {
+                "description": "Quantidade de segundos até uma nova tentativa.",
+                "schema": {
+                  "type": "integer"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Falha interna ao processar a solicitação.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBaseResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "UrlBackend": {
+        "type": "object",
+        "description": "Resposta do serviço de descoberta de URLs.",
+        "required": [
+          "backend"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL atual do backend que deve ser usada no login e nas APIs de emitentes.",
+            "example": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io"
+          }
+        },
+        "additionalProperties": true
+      },
+      "LoginRequest": {
+        "type": "object",
+        "description": "Credenciais do usuário externo do emitente.",
+        "required": [
+          "userName",
+          "password"
+        ],
+        "properties": {
+          "userName": {
+            "type": "string",
+            "description": "Nome de acesso do usuário do tipo Sistema externo do emitente - API.",
+            "example": "integracao.emitente"
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "Senha do usuário. Não grave este valor em logs.",
+            "example": "sua-senha"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginResponse": {
+        "type": "object",
+        "description": "Resposta de autenticação. O contrato atual também retorna configurações completas de usuário e empresa; para esta integração, o campo obrigatório de uso é `token`.",
+        "required": [
+          "token",
+          "empresa",
+          "user"
+        ],
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "Token JWT a ser enviado no header Authorization com o prefixo Bearer.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "empresa": {
+            "type": "object",
+            "description": "Dados e configurações da empresa associada ao usuário.",
+            "additionalProperties": true
+          },
+          "user": {
+            "type": "object",
+            "description": "Dados e configurações do usuário autenticado. Para esta API, a role esperada é SistemaExternoEmitente.",
+            "properties": {
+              "id": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Identificador do usuário autenticado."
+              },
+              "userName": {
+                "type": "string",
+                "description": "Nome do usuário autenticado."
+              },
+              "empresaId": {
+                "type": "integer",
+                "format": "int32",
+                "description": "Identificador da empresa do usuário."
+              },
+              "role": {
+                "type": "string",
+                "description": "Perfil de autorização do usuário.",
+                "example": "SistemaExternoEmitente"
+              }
+            },
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "LoginError": {
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Mensagem de falha da autenticação."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConsultaSituacaoRequest": {
+        "type": "object",
+        "description": "Filtros de identificação do documento. Ao menos um deve ser preenchido. A API utiliza somente o primeiro filtro preenchido na ordem chave, numeroNf e idExterno.",
+        "properties": {
+          "chave": {
+            "type": "string",
+            "nullable": true,
+            "description": "Chave do documento fiscal. Quando preenchida, tem prioridade e os demais filtros são ignorados.",
+            "example": "12345678901234567890123456789012345678901234"
+          },
+          "numeroNf": {
+            "type": "string",
+            "nullable": true,
+            "description": "Número da nota fiscal. É usado somente quando `chave` estiver vazia.",
+            "example": "158148"
+          },
+          "idExterno": {
+            "type": "string",
+            "nullable": true,
+            "description": "Identificador externo do documento. É usado somente quando `chave` e `numeroNf` estiverem vazios.",
+            "example": "15.814.8-lote1"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SituacaoBaseResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indica que a operação foi concluída com sucesso.",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Mensagem pública sobre o resultado da operação.",
+            "example": "Sucesso."
+          },
+          "data": {
+            "$ref": "#/components/schemas/SituacaoEntrega"
+          },
+          "metadata": {
+            "type": "object",
+            "nullable": true,
+            "description": "Metadados opcionais da resposta. Não é utilizado neste endpoint.",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "SituacaoEntrega": {
+        "type": "object",
+        "required": [
+          "situacao",
+          "motivosDevolucao",
+          "evidencias"
+        ],
+        "properties": {
+          "situacao": {
+            "type": "string",
+            "description": "Situação textual exata da entrega. `Entregue`: entrega integral; `Devolvido`: entrega devolvida; `EntregueParcial`: somente parte foi entregue; `Cancelada`: entrega cancelada; `Reagendada`: entrega programada para nova data; `Aguardando`: ainda aguarda realização; `Bloqueada`: realização bloqueada.",
+            "enum": [
+              "Entregue",
+              "Devolvido",
+              "EntregueParcial",
+              "Cancelada",
+              "Reagendada",
+              "Aguardando",
+              "Bloqueada"
+            ],
+            "example": "EntregueParcial"
+          },
+          "dataHoraRealizada": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Data e hora registradas para a realização da parada. Pode ser `null` quando a entrega ainda não foi realizada ou não possui registro de realização.",
+            "example": "2026-08-31T16:05:00-03:00"
+          },
+          "localRealizado": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/LocalRealizado"
+              }
+            ],
+            "nullable": true,
+            "description": "Coordenadas registradas na realização da parada. Pode ser `null` quando não há parada associada."
+          },
+          "motivosDevolucao": {
+            "type": "array",
+            "description": "Motivos associados à realização, especialmente em devoluções, entregas parciais ou reagendamentos. Pode ser uma lista vazia.",
+            "items": {
+              "$ref": "#/components/schemas/MotivoDevolucao"
+            }
+          },
+          "evidencias": {
+            "type": "array",
+            "description": "Evidências autorizadas e disponíveis para download. Cada `id` pode ser consultado no endpoint de evidências. Arquivos ausentes ou não autorizados não aparecem na lista.",
+            "items": {
+              "$ref": "#/components/schemas/EvidenciaResumo"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LocalRealizado": {
+        "type": "object",
+        "required": [
+          "latitude",
+          "longitude"
+        ],
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "format": "double",
+            "minimum": -90,
+            "maximum": 90,
+            "description": "Latitude registrada no local da realização.",
+            "example": -26.3044
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double",
+            "minimum": -180,
+            "maximum": 180,
+            "description": "Longitude registrada no local da realização.",
+            "example": -48.8461
+          }
+        },
+        "additionalProperties": false
+      },
+      "MotivoDevolucao": {
+        "type": "object",
+        "properties": {
+          "titulo": {
+            "type": "string",
+            "nullable": true,
+            "description": "Título resumido do motivo registrado.",
+            "example": "Cliente ausente"
+          },
+          "descricao": {
+            "type": "string",
+            "nullable": true,
+            "description": "Descrição detalhada do motivo registrado.",
+            "example": "Não havia recebedor no local"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EvidenciaResumo": {
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 1,
+            "description": "Identificador usado para obter o conteúdo da evidência.",
+            "example": 123
+          },
+          "dataHora": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Data e hora associadas ao registro da evidência.",
+            "example": "2026-08-31T14:23:10-03:00"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EvidenciaBaseResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "message",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Indica que a operação foi concluída com sucesso.",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "description": "Mensagem pública sobre o resultado da operação.",
+            "example": "Sucesso."
+          },
+          "data": {
+            "$ref": "#/components/schemas/Evidencia"
+          },
+          "metadata": {
+            "type": "object",
+            "nullable": true,
+            "description": "Metadados opcionais da resposta. Não é utilizado neste endpoint.",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "Evidencia": {
+        "type": "object",
+        "required": [
+          "conteudoBase64"
+        ],
+        "properties": {
+          "conteudoBase64": {
+            "type": "string",
+            "format": "byte",
+            "description": "Conteúdo binário integral da evidência codificado em Base64. Trate-o como dado sensível e não o grave em logs.",
+            "example": "iVBORw0KGgoAAAANSUhEUgAA..."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ErrorBaseResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "message"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "description": "Sempre `false` nas falhas produzidas pela aplicação.",
+            "example": false
+          },
+          "message": {
+            "type": "string",
+            "description": "Mensagem pública da falha, sem detalhes internos.",
+            "example": "Recurso não encontrado."
+          },
+          "data": {
+            "nullable": true,
+            "description": "Sem dados em respostas de erro."
+          },
+          "metadata": {
+            "type": "object",
+            "nullable": true,
+            "description": "Metadados opcionais. Normalmente `null` em respostas de erro.",
+            "additionalProperties": true
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "securitySchemes": {
+      "Bearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "Informe o token retornado pelo login. A interface adicionará automaticamente o prefixo Bearer."
+      }
+    }
+  },
+  "security": [
+    {
+      "Bearer": []
+    }
+  ]
+}
