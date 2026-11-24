@@ -152,7 +152,7 @@
           "Entregas do emitente"
         ],
         "summary": "Consulta a situação de uma entrega do emitente",
-        "description": "Retorna a situação da entrega somente quando o documento pertence a um emitente vinculado ativamente ao usuário autenticado.<br/><br/><strong>Prioridade dos filtros:</strong> `chave`, depois `numeroNf`, depois `idExterno`. Quando mais de um campo for enviado, apenas o primeiro preenchido nessa ordem será usado. Ao menos um filtro é obrigatório. Se o filtro localizar mais de um documento autorizado, a API solicitará um filtro mais específico.<br/><br/>O endpoint aceita até 60 requisições por minuto, por usuário e por instância.",
+        "description": "Retorna a situação da entrega somente quando o documento pertence a um emitente vinculado ativamente ao usuário autenticado.<br/><br/><strong>Prioridade dos filtros:</strong> `chave`, depois `numeroNf`, depois `idExterno`. Quando mais de um campo for enviado, apenas o primeiro preenchido nessa ordem será usado. Ao menos um filtro é obrigatório. Se o filtro localizar mais de um documento autorizado, a API solicitará um filtro mais específico.<br/><br/><strong>Agendamento:</strong> quando a entrega possui horário agendado, o campo `agendamento` traz o início e o fim da janela, usando a data da rota em que a entrega está programada. Sem agendamento, o campo é retornado como `null`.<br/><br/>O endpoint aceita até 60 requisições por minuto, por usuário e por instância.",
         "servers": [
           {
             "url": "https://container-app-prod-ms-backend.proudsand-a95781db.eastus.azurecontainerapps.io",
@@ -191,7 +191,7 @@
         },
         "responses": {
           "200": {
-            "description": "Situação encontrada com sucesso. Consulte os exemplos para todos os valores possíveis de `situacao`.",
+            "description": "Situação encontrada com sucesso. Consulte os exemplos para todos os valores possíveis de `situacao` e para entregas com e sem `agendamento`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -199,7 +199,7 @@
                 },
                 "examples": {
                   "Aguardando": {
-                    "summary": "Entrega ainda aguardando realização",
+                    "summary": "Entrega ainda aguardando realização, sem agendamento",
                     "value": {
                       "success": true,
                       "message": "Sucesso.",
@@ -207,6 +207,26 @@
                         "situacao": "Aguardando",
                         "dataHoraRealizada": null,
                         "localRealizado": null,
+                        "agendamento": null,
+                        "motivosDevolucao": [],
+                        "evidencias": []
+                      },
+                      "metadata": null
+                    }
+                  },
+                  "Aguardando com agendamento": {
+                    "summary": "Entrega aguardando realização, agendada para 26/11 das 14h às 16h",
+                    "value": {
+                      "success": true,
+                      "message": "Sucesso.",
+                      "data": {
+                        "situacao": "Aguardando",
+                        "dataHoraRealizada": null,
+                        "localRealizado": null,
+                        "agendamento": {
+                          "dataHoraInicio": "2026-11-26T14:00:00",
+                          "dataHoraFim": "2026-11-26T16:00:00"
+                        },
                         "motivosDevolucao": [],
                         "evidencias": []
                       },
@@ -224,6 +244,10 @@
                         "localRealizado": {
                           "latitude": -26.3044,
                           "longitude": -48.8461
+                        },
+                        "agendamento": {
+                          "dataHoraInicio": "2026-08-31T14:00:00",
+                          "dataHoraFim": "2026-08-31T16:00:00"
                         },
                         "motivosDevolucao": [],
                         "evidencias": [
@@ -248,6 +272,7 @@
                           "latitude": -26.305,
                           "longitude": -48.847
                         },
+                        "agendamento": null,
                         "motivosDevolucao": [
                           {
                             "titulo": "Cliente ausente",
@@ -276,6 +301,7 @@
                           "latitude": -26.3062,
                           "longitude": -48.8483
                         },
+                        "agendamento": null,
                         "motivosDevolucao": [
                           {
                             "titulo": "Mercadoria recusada parcialmente",
@@ -305,6 +331,7 @@
                         "situacao": "Cancelada",
                         "dataHoraRealizada": null,
                         "localRealizado": null,
+                        "agendamento": null,
                         "motivosDevolucao": [],
                         "evidencias": []
                       },
@@ -320,6 +347,7 @@
                         "situacao": "Reagendada",
                         "dataHoraRealizada": null,
                         "localRealizado": null,
+                        "agendamento": null,
                         "motivosDevolucao": [
                           {
                             "titulo": "Recebimento reagendado",
@@ -340,6 +368,7 @@
                         "situacao": "Bloqueada",
                         "dataHoraRealizada": null,
                         "localRealizado": null,
+                        "agendamento": null,
                         "motivosDevolucao": [],
                         "evidencias": []
                       },
@@ -747,6 +776,15 @@
             "nullable": true,
             "description": "Coordenadas registradas na realização da parada. Pode ser `null` quando não há parada associada."
           },
+          "agendamento": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Agendamento"
+              }
+            ],
+            "nullable": true,
+            "description": "Janela de agendamento da entrega. A data é a data da rota em que a entrega está programada e os horários são os da janela agendada. É `null` quando a entrega não possui agendamento ou ainda não está em uma rota."
+          },
           "motivosDevolucao": {
             "type": "array",
             "description": "Motivos associados à realização, especialmente em devoluções, entregas parciais ou reagendamentos. Pode ser uma lista vazia.",
@@ -760,6 +798,29 @@
             "items": {
               "$ref": "#/components/schemas/EvidenciaResumo"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "Agendamento": {
+        "type": "object",
+        "description": "Janela de agendamento da entrega, montada com a data da rota e os horários de início e fim agendados. Os valores estão no horário local da operação e não trazem fuso horário.",
+        "required": [
+          "dataHoraInicio"
+        ],
+        "properties": {
+          "dataHoraInicio": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Data e hora de início da janela de agendamento (data da rota + horário inicial agendado).",
+            "example": "2026-11-26T14:00:00"
+          },
+          "dataHoraFim": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Data e hora de fim da janela de agendamento (data da rota + horário final agendado). Quando o horário final é menor que o inicial, a janela atravessa a meia-noite e o fim fica no dia seguinte (ex.: 22:00 às 02:00). Pode ser `null` quando somente o horário inicial foi informado.",
+            "example": "2026-11-26T16:00:00"
           }
         },
         "additionalProperties": false
